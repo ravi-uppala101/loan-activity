@@ -1,0 +1,65 @@
+
+ set PATH=C:\Program Files (x86)\Apache\apache-maven-3.5.0\bin;%PATH%
+
+
+export http_proxy=http://zsproxy.fanniemae.com:9480
+export https_proxy=http://zsproxy.fanniemae.com:9480
+export no_proxy=localhost,127.0.0.1,autoyast,.fanniemae.com,169.254.169.254
+
+ 
+ docker build -t loan-activity:1.0  .
+     docker run -p 33000:3000 --mount type=bind,source=/root/loan_deploy/data/input,target=/app/data/input -it loan-activity:1.0  bash
+
+        /etc/init.d/elasticsearch start
+        /etc/init.d/grafana-server start
+
+        confluent start
+
+
+create stream lar96stream (fannieMaeLoanNumber BIGINT, lenderNumber BIGINT) WITH \
+(kafka_topic='lar96topic', value_format='JSON',key='fannieMaeLoanNumber');
+
+select * from loan;
+	
+RUN SCRIPT '/app/loan-schema.sql';
+
+
+http://10.215.20.191:3000/d/Ii5HDOTiz/click-stream-analysis
+
+export http_proxy=http://zsproxy.fanniemae.com:9480
+
+
+
+-- lets the windows accumulate more data
+set 'commit.interval.ms'='2000';
+set 'cache.max.bytes.buffering'='10000000';
+set 'auto.offset.reset'='earliest';
+
+
+java  -jar  loan-activity-0.0.1-SNAPSHOT.jar &
+
+DROP STREAM IF EXISTS lar96stream;
+CREATE STREAM lar96stream (fannieMaeLoanNumber bigint, lenderNumber bigint, actionCode int, description varchar, lpiDate String, lpiDateBefore boolean) with (kafka_topic = 'lar96topic', value_format = 'json');
+
+DROP TABLE IF EXISTS loan_events_per_min;
+CREATE table loan_events_per_min AS SELECT fannieMaeLoanNumber, count(*) AS events FROM lar96stream window TUMBLING (size 60 second) GROUP BY fannieMaeLoanNumber;
+
+-- Aggregate (count&groupBy) using a TABLE-Window
+    CREATE TABLE loan_count_by_actioncode AS SELECT actionCode, description, COUNT(*) AS count FROM lar96stream GROUP BY actionCode, description HAVING COUNT(*) > 1;
+
+
+-- Aggregate (count&groupBylpidate) using a TABLE-Window
+    CREATE TABLE loan_count_by_lender AS SELECT lenderNumber, COUNT(*) AS count FROM lar96stream WHERE  lpiDateBefore = true GROUP BY lenderNumber  HAVING COUNT(*) > 1;
+
+
+select * from loan_count_by_actioncode
+
+cd /app/data/input/scripts/
+
+    ./ksql-tables-to-grafana.sh
+./clickstream-analysis-dashboard.sh
+
+
+ http://10.215.20.191:33000/d/BXSRLj0ik/loan-activity-report
+
+ http://10.215.20.191:33000/d/GAKkZWJik/loan-activity-report
